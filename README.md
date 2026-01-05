@@ -1,10 +1,10 @@
 # linkscape
 
-Ce modèle explore l’évolution d’un réseau d’agents dans un contexte de gestion de ressources communes. Les agents cherchent à survivre en consommant de l’épice dispersée dans l’environnement.
+Ce modèle explore l’évolution d’un réseau d’agents dans un contexte de gestion de ressources communes. Les agents cherchent à survivre en consommant de la nourriture dispersée dans l’environnement.
 
-Nous suivons la structure du réseau d’agents, où deux agents liés sont considérés comme voisins. Les voisins peuvent et vont communiquer entre eux s’ils découvrent de l’épice. Un agent n’ayant pas trouvé d’épice se déplacera vers un voisin qui en a trouvé, si un tel voisin existe. Sinon, l’agent se déplacera de manière aléatoire jusqu’à ce qu’il trouve de l’épice ou meure.
+Nous suivons la structure du réseau d’agents, où deux agents liés sont considérés comme voisins. Les voisins peuvent et vont communiquer entre eux s’ils découvrent de la nourriture. Un agent n’ayant pas trouvé de nourriture se déplacera vers un voisin qui en a trouvé, si un tel voisin existe. Sinon, l’agent se déplacera de manière aléatoire jusqu’à ce qu’il trouve de la nourriture ou ne meure.
 
-Dans ce modèle, un réseau d’agents fortement connecté favorise un comportement coopératif marqué, tandis qu’un réseau faiblement connecté reflète une dynamique plus compétitive. À chaque pas de temps, chaque agent perd une quantité fixe d’épice et meurt si son niveau d’épice atteint zéro. Les agents peuvent également ajuster leur connectivité (c’est-à-dire leur probabilité de former des liens avec d’autres agents) avec une probabilité de mutation fixe. De plus, ils peuvent se dupliquer s’ils accumulent suffisamment d’épice pour dépasser un seuil déterminé.
+Dans ce modèle, un réseau d’agents fortement connecté favorise un comportement coopératif marqué, tandis qu’un réseau faiblement connecté reflète une dynamique plus compétitive. À chaque pas de temps, chaque agent perd une quantité fixe de nourriture et meurt si son niveau de nourriture atteint zéro. Les agents peuvent également ajuster leur connectivité (c’est-à-dire leur probabilité de former des liens avec d’autres agents) avec une probabilité de mutation fixe. De plus, ils peuvent se dupliquer s’ils accumulent suffisamment de nourriture pour dépasser un seuil déterminé.
 
 
 <br>
@@ -22,5 +22,5 @@ Dans ce modèle, un réseau d’agents fortement connecté favorise un comportem
   <img src="gifs/output2.gif" alt="GIF">
 </p>
 
-Nous observons que la coopération éerge rapidement lorsque les ressources sont très concentrées alors que des comportements compétitifs émergent lorsque la ressource est peu concentrée.
+Nous observons que la coopération émerge rapidement lorsque les ressources sont très concentrées alors que des comportements compétitifs émergent lorsque la ressource est peu concentrée.
 De plus, malgré la transition dans les niveaux de concentration de la ressource, le système s'adapte et retrouve un régime stable après une phase de perturbation brève.
