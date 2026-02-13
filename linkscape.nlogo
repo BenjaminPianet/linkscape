@@ -1,135 +1,70 @@
 ; ======================================================================
-; Modèle Linkscape - Janvier 2025
-; Netlogo 6.4
+; Modèle Linkscape - Janvier 2025 (NetLogo 6.4)
+; ======================================================================
+; Cadre général :
+;   - Simulation multi-agents spatialisée (turtles) sur une grille (patches).
+;   - Réseau social dynamique représenté par des liens (links) entre turtles.
+;   - Ressource environnementale locale (patches) pouvant former des "attracteurs"
+;     exploités par les agents.
+;   - Mécanisme de changement de régime ("crise") altérant les paramètres du milieu.
+;   - Instrumentation : export tick-par-tick des métriques (CSV) pour analyse externe.
 ; ======================================================================
 
-extensions [table csv]
+extensions [table csv]  ; 'table' pour structures clé-valeur ; 'csv' pour faciliter l'export de séries.
 
 ; ----------------------------------------------------------------------
-; Variables des patches (environnement)
+; 1) ÉTAT DU MILIEU (patches)
 ; ----------------------------------------------------------------------
 patches-own [
-  attractor?
-  ressource
+  attractor?  ; Indicateur booléen : le patch est-il un attracteur (zone exploitable / visible) ?
+  ressource   ; Stock de ressource local ; décroît par consommation et croît via la procédure de régénération.
 ]
 
 ; ----------------------------------------------------------------------
-; Variables des turtles (agents)
+; 2) ÉTAT DES AGENTS (turtles)
 ; ----------------------------------------------------------------------
 turtles-own [
-  spice
-  max-spice
-  target
-  target?
-  p-association
-  cap-association
+  spice           ; Énergie individuelle : conditionne survie, activité et reproduction.
+  max-spice       ; Paramètre individuel (seuil) utilisé pour déclencher la division.
+  target          ; Cible courante (références de type patch) ou nobody si absence de cible.
+  target?         ; Booléen : l’agent considère-t-il disposer d’une cible exploitable ?
+  p-association   ; Propension individuelle à créer des liens (probabilité de connexion).
+  cap-association ; Capacité individuelle : borne supérieure (souple) du nombre de voisins.
 ]
 
 ; ----------------------------------------------------------------------
-; Variables globales (mesures + stockage)
+; 3) VARIABLES GLOBALES : mesures, logging, et cohérence des runs
 ; ----------------------------------------------------------------------
 globals [
-  values
-  goods
-  n-attractors
-  entropy
-  crisis?
-  sum-p
-  sum-max-spice
-  avg-p
-  avg-links
-  avg-max-spice
-  adjacency-table
-  adjacency-list
+  values           ; Tampon pour itérations sur valeurs de tables (mesure entropie).
+  goods            ; Compteur global de biens produits (ici : nombre total d’actes de consommation).
+  n-attractors     ; Variable déclarée (utilisée par logging via n_attr) ; indicateur de densité d’attracteurs.
+  entropy          ; Entropie de Shannon de la distribution des degrés (hétérogénéité du réseau).
+  crisis?          ; Booléen : régime de crise actif ou non.
+  sum-p            ; Somme des p-association (pour calculer avg-p).
+  sum-max-spice    ; Somme des max-spice (pour calculer avg-max-spice).
+  avg-p            ; Moyenne des propensions à s’associer.
+  avg-links        ; Degré moyen : nombre de liens / nombre d’agents.
+  avg-max-spice    ; Moyenne des seuils max-spice.
+  adjacency-table  ; Table : who → liste des who des voisins ; capture du graphe à un tick donné.
+  adjacency-list   ; Version linéarisée de l’adjacence (plus simple à inspecter/exporter).
 
-  ; --- logging (export métriques) ---
-  log-file
-  log-every
-  log-header-written?
-
-  ; --- PARAMS SNAPSHOT (pour noms de fichiers + cohérence run) ---
-  run-wealth
-  run-growth-rate
-  run-max-attractors
+  ; --- PARAMS SNAPSHOT (cohérence run) ---
+  run-wealth          ; Valeur de wealth figée au démarrage (utile si settings modifie wealth ensuite).
+  run-growth-rate     ; Valeur de growth-rate figée au démarrage.
+  run-max-attractors  ; Valeur de max-attractors figée au démarrage.
 ]
 
-; ======================================================================
-; 0) LOGGING CSV : métriques tick-par-tick pour analyses externes
-; ======================================================================
-
-to setup-logging
-  ; Snapshot des paramètres au démarrage du run (évite les incohérences si "settings" change en cours de simu)
-  set run-wealth wealth
-  set run-growth-rate growth-rate
-  set run-max-attractors max-attractors
-
-  set log-every 1
-  set log-header-written? false
-
-  ; IMPORTANT : paramètres encodés dans le NOM DE FICHIER pour grouper facilement côté Python
-  ; Format attendu par le script : wealth=..._growth=..._maxA=...
-  set log-file (word
-    "results/run_"
-    date-and-time "_"
-    random 100000
-    "_wealth=" run-wealth
-    "_growth=" run-growth-rate
-    "_maxA=" run-max-attractors
-    ".csv"
-  )
-
-  file-open log-file
-  write-log-header
-  file-close
-end
-
-to write-log-header
-  if log-header-written? [ stop ]
-
-  file-print (word
-    "tick,"
-    "run_wealth,run_growth_rate,run_max_attractors,"
-    "wealth,growth_rate,max_attractors,"
-    "n_turtles,n_links,avg_p,avg_links,avg_max_spice,goods,entropy,n_attractors,crisis"
-  )
-  set log-header-written? true
-end
-
-
-to log-metrics
-  if (ticks mod log-every) != 0 [ stop ]
-
-  let n_turtles count turtles
-  let n_links count links
-  let n_attr count patches with [ attractor? ]
-
-  file-open log-file
-  if not log-header-written? [ write-log-header ]
-
-  file-print (word
-    ticks ","
-    run-wealth ","
-    run-growth-rate ","
-    run-max-attractors ","
-    wealth ","
-    growth-rate ","
-    max-attractors ","
-    n_turtles ","
-    n_links ","
-    avg-p ","
-    avg-links ","
-    avg-max-spice ","
-    goods ","
-    entropy ","
-    n_attr ","
-    crisis?
-  )
-  file-close
-end
 
 ; ======================================================================
-; 1) INITIALISATION
+; 1) INITIALISATION DU SYSTÈME
 ; ======================================================================
+; Étapes :
+;   - Remise à zéro de l’état.
+;   - Création des agents avec traits initiaux (spice, max-spice, propension/capacité de liens).
+;   - Initialisation des patches (ressource aléatoire, attracteurs désactivés).
+;   - Initialisation de l’instrumentation (fichier CSV).
+;   - Activation éventuelle de règles de régime (check-crisis) au tick initial.
 
 to setup
   clear-all
@@ -140,6 +75,7 @@ to setup
     set spice initial-spice
     set max-spice initial-spice
     set target? false
+    set target nobody
     set size 0.3
     set p-association random-float initial-p
     set cap-association random-float initial-cap
@@ -150,7 +86,6 @@ to setup
   set crisis? false
 
   setup-patches
-  setup-logging
   reset-ticks
   check-crisis
 end
@@ -163,8 +98,16 @@ to setup-patches
 end
 
 ; ======================================================================
-; 2) BOUCLE PRINCIPALE
+; 2) BOUCLE PRINCIPALE (DYNAMIQUE TEMPORELLE)
 ; ======================================================================
+; Ordonnancement par tick :
+;   (i)   arrêt conditionnel si time-limit atteint
+;   (ii)  mise à jour du régime (check-crisis)
+;   (iii) phase agents (contrôle des liens, ciblage, connexion, action, mutation, reproduction, métabolisme)
+;   (iv)  phase environnement (grow)
+;   (v)   agrégation d’indicateurs + mesures réseau
+;   (vi)  export des métriques (CSV)
+;   (vii) incrément du tick
 
 to go
   if time-limit != 0 and ticks = time-limit [ export-plots stop ]
@@ -178,6 +121,8 @@ to go
 
   ask turtles [
 
+    ; --- (1) Régulation de la densité relationnelle ---
+    ; Un dépassement de la capacité individuelle entraîne la suppression itérative de liens aléatoires.
     let diff count link-neighbors - cap-association
     if diff > 0 [
       while [diff > 0] [
@@ -186,9 +131,13 @@ to go
       ]
     ]
 
+    ; --- (2) Ciblage informé par le réseau ---
     update_target
+
+    ; --- (3) Formation de liens sociaux ---
     connect
 
+    ; --- (4) Politique d’action (priorité : survie > exploitation > déplacement ciblé > errance) ---
     (ifelse
       spice < 1 [ die ]
       [ attractor? ] of patch-here = true [ eat ]
@@ -200,16 +149,24 @@ to go
       ]
     )
 
+    ; --- (5) Variation individuelle ---
     mutate
+
+    ; --- (6) Reproduction asexuée ---
     divide
+
+    ; --- (7) Métabolisme ---
     set spice spice - 2
 
+    ; --- (8) Accumulation pour statistiques ---
     set sum-p sum-p + p-association
     set sum-max-spice sum-max-spice + max-spice
   ]
 
+  ; Phase environnementale
   grow
 
+  ; Agrégation
   let n-turtles count turtles
   if n-turtles > 0 [
     set avg-p sum-p / n-turtles
@@ -217,17 +174,22 @@ to go
     set avg-max-spice sum-max-spice / n-turtles
   ]
 
+  ; Mesures réseau et capture de structure
   get-network-entropy
   get-adjacency-list
-
-  log-metrics
 
   tick
 end
 
 ; ======================================================================
-; 3) GESTION DES RÉGIMES / CRISES
+; 3) CHANGEMENTS DE RÉGIME / CRISES
 ; ======================================================================
+; Mécanisme :
+;   - 'switch' : bascule périodique entre deux régimes (concentration ↔ dispersion) et activation de crisis?.
+;   - 'minor-switch' : oscillation de neutral (si crise inactive).
+;   - 'settings' : réécriture automatique de paramètres globaux (wealth, growth-rate, max-attractors)
+;                 en fonction du régime courant.
+;   - choc environnemental : remise à niveau des ressources et suppression des attracteurs selon des échéances.
 
 to check-crisis
   (ifelse
@@ -251,6 +213,7 @@ to check-crisis
   ]
 
   if settings = true [
+    ; x approxime la surface (nombre de patches) à partir des bornes spatiales
     let x max-pxcor * max-pycor * 4
     (
       ifelse
@@ -291,26 +254,37 @@ to check-crisis
 end
 
 ; ======================================================================
-; 4) CIBLAGE
+; 4) CIBLAGE (DIFFUSION D’INFORMATION PAR LE RÉSEAU)
 ; ======================================================================
+; Le ciblage dépend de l’existence, dans le voisinage social (link-neighbors),
+; d’agents situés sur des patches attracteurs. Une cible est représentée par un patch.
+; Si la condition d’accessibilité sociale disparaît, la cible est invalidée.
 
 to update_target
   if target? = true and not any? link-neighbors with [ attractor? ] = true [
-    set target? false set target nobody
+    set target? false
+    set target nobody
   ]
 
   (ifelse
     target? = false and any? link-neighbors with [ attractor? ] = true [
-        set target [target] of one-of link-neighbors with [ attractor? = true ]
-        set target? true
-      ]
-    [ set target? false set target nobody ]
+      set target [target] of one-of link-neighbors with [ attractor? = true ]
+      set target? true
+    ]
+    [
+      set target? false
+      set target nobody
+    ]
   )
 end
 
 ; ======================================================================
-; 5) FORMATION DES LIENS
+; 5) FORMATION DES LIENS (RÉSEAU SOCIAL)
 ; ======================================================================
+; Schéma de connexion pair-à-pair :
+;   - un lien est créé entre deux agents si chacun dispose de "capacité" restante,
+;     et si les deux tirages probabilistes (p-association de chaque côté) réussissent.
+; Cette implémentation effectue une exploration exhaustive des autres turtles.
 
 to connect
   foreach [self] of other turtles [
@@ -329,6 +303,10 @@ end
 ; ======================================================================
 ; 6) DÉPLACEMENT VERS LA CIBLE
 ; ======================================================================
+; Déplacement dirigé :
+;   - orientation vers les coordonnées du patch cible (facexy),
+;   - translation de longueur 'speed' (jump).
+; La condition 'target != nobody' garantit l’existence d’une référence de patch.
 
 to go_to_target
   if target != nobody [
@@ -340,6 +318,11 @@ end
 ; ======================================================================
 ; 7) CONSOMMATION SUR ATTRACTEUR
 ; ======================================================================
+; Effets :
+;   - ancrage de la cible sur le patch courant,
+;   - décrément de la ressource locale,
+;   - extinction de l’attracteur si la ressource atteint un seuil bas,
+;   - gain individuel (spice) et incrément du compteur global (goods).
 
 to eat
   set target? true
@@ -358,8 +341,14 @@ to eat
 end
 
 ; ======================================================================
-; 8) MUTATION
+; 8) MUTATION (DÉRIVE DES TRAITS SOCIAUX)
 ; ======================================================================
+; À chaque tick, avec probabilité mutation-rate :
+;   - mortalité aléatoire (bad-mutation),
+;   - sinon, mutation conjointe :
+;       * p-association se déplace par pas de ±0.001 (bornage supérieur à 0.999 côté augmentation),
+;       * cap-association se déplace par pas de ±0.1 (bornage inférieur à 0.1 côté diminution).
+; La mutation couple donc propension et capacité d’association.
 
 to mutate
   if random-float 1 < mutation-rate [
@@ -379,6 +368,12 @@ end
 ; ======================================================================
 ; 9) REPRODUCTION / DIVISION
 ; ======================================================================
+; Condition :
+;   - division asexuée si spice > 2 * max-spice.
+; Effets :
+;   - création d’un clone (hatch 1) avec réinitialisations locales,
+;   - redistribution partielle d’énergie.
+; Le clone hérite des variables non réécrites (dont les traits sociaux).
 
 to divide
   if spice > 2 * max-spice [
@@ -386,6 +381,7 @@ to divide
       set color white
       set spice max-spice
       set target? false
+      set target nobody
       set size 0.3
     ]
     set spice spice - initial-spice
@@ -393,8 +389,12 @@ to divide
 end
 
 ; ======================================================================
-; 10) CROISSANCE ENVIRONNEMENTALE
+; 10) DYNAMIQUE ENVIRONNEMENTALE (RÉGÉNÉRATION + ÉMERGENCE D’ATTRACTEURS)
 ; ======================================================================
+; Tant que le nombre d’attracteurs est inférieur à max-attractors :
+;   - les patches non-attracteurs se rechargent stochastiquement jusqu’à wealth,
+;   - dès que ressource atteint wealth, le patch peut devenir attracteur (couleur rouge).
+; Enfin, un bornage supérieur impose ressource ≤ wealth.
 
 to grow
   if growth-rate > 0 and count patches with [ attractor? = true ] < max-attractors [
@@ -416,8 +416,13 @@ to grow
 end
 
 ; ======================================================================
-; 11) ENTROPIE DU RÉSEAU : distribution des degrés
+; 11) MESURE D’ENTROPIE DU RÉSEAU (DISTRIBUTION DES DEGRÉS)
 ; ======================================================================
+; Objectif :
+;   - construire la distribution des degrés k = 0..(n_turtles-1),
+;   - calculer l’entropie de Shannon H = - Σ p(k) log2 p(k),
+;     où p(k) est la proportion d’agents ayant exactement k voisins.
+; Cette mesure caractérise la diversité des connectivités (homogène vs hétérogène).
 
 to get-network-entropy
   let n_turtles count turtles
@@ -443,8 +448,12 @@ to get-network-entropy
 end
 
 ; ======================================================================
-; 12) CAPTURE DE LA LISTE D’ADJACENCE À UN TICK DONNÉ
+; 12) CAPTURE DE LA STRUCTURE : LISTE D’ADJACENCE À UN TICK DONNÉ
 ; ======================================================================
+; À l’instant adjacency-step :
+;   - construction d’une table associant chaque identifiant who à la liste des voisins (who),
+;   - conversion en liste linéaire adjacency-list (format sentence) pour inspection rapide.
+; Cette capture sert typiquement à exporter ou analyser la topologie à un instant précis.
 
 to get-adjacency-list
   if adjacency-step != 0 and ticks = adjacency-step [
@@ -471,6 +480,8 @@ end
 ; ======================================================================
 ; 13) EXPORT DES PLOTS (CSV)
 ; ======================================================================
+; Exporte des plots NetLogo (interface) au format CSV, avec identifiant aléatoire
+; et encodage d’un sous-ensemble de paramètres dans le nom pour faciliter la collecte.
 
 to export-plots
   let id random-float 1.0
